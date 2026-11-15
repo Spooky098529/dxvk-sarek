@@ -65,6 +65,7 @@ namespace dxvk {
     this->supportD32                    = config.getOption<bool>        ("d3d9.supportD32",                    true);
     this->useD32forD24                  = config.getOption<bool>        ("d3d9.useD32forD24",                  false);
     this->disableA8RT                   = config.getOption<bool>        ("d3d9.disableA8RT",                   false);
+    this->expandR8                      = config.getOption<bool>        ("d3d9.expandR8",                      false);
     this->invariantPosition             = config.getOption<bool>        ("d3d9.invariantPosition",             true);
     this->memoryTrackTest               = config.getOption<bool>        ("d3d9.memoryTrackTest",               false);
     this->supportVCache                 = config.getOption<bool>        ("d3d9.supportVCache",                 vendorId == uint32_t(DxvkGpuVendor::Nvidia));

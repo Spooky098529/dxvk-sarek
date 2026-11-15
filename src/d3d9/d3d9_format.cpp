@@ -461,6 +461,7 @@ namespace dxvk {
     // W11V11U10 is only supported by D3D8
     m_w11v11u10Support = false;
     m_d32supportFinal = options.supportD32;
+    m_expandR8 = options.expandR8;
 
     // AMD do not support 24-bit depth buffers on Vulkan,
     // so we have to fall back to a 32-bit depth format.
@@ -491,6 +492,9 @@ namespace dxvk {
 
     if (!m_a4r4g4b4Support)
       Logger::warn("D3D9: VK_FORMAT_A4R4G4B4_UNORM_PACK16_EXT -> VK_FORMAT_B4G4R4A4_UNORM_PACK16");
+
+    if (m_expandR8)
+      Logger::info("D3D9: d3d9.expandR8 enabled: A8/L8 textures use VK_FORMAT_R8G8B8A8_UNORM instead of VK_FORMAT_R8_UNORM");
   }
 
   D3D9_VK_FORMAT_MAPPING D3D9VkFormatTable::GetFormatMapping(
@@ -527,6 +531,15 @@ namespace dxvk {
       mapping.Swizzle     = {
         VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_R,
         VK_COMPONENT_SWIZZLE_A, alphaSwizzle };
+    }
+
+    // Keep FormatColor as R8 so that the mapped buffer still
+    // stores one byte per texel, only the image gets wider.
+    if (m_expandR8 && (Format == D3D9Format::A8 || Format == D3D9Format::L8)) {
+      mapping.ExpandR8 = true;
+      mapping.ConversionFormatInfo.FormatColor = VK_FORMAT_R8G8B8A8_UNORM;
+      mapping.ConversionFormatInfo.FormatSrgb  = mapping.FormatSrgb != VK_FORMAT_UNDEFINED
+        ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_UNDEFINED;
     }
 
     return mapping;

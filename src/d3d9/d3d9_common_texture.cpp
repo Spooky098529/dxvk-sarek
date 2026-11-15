@@ -293,11 +293,18 @@ namespace dxvk {
     bool isMutable     = m_mapping.FormatSrgb != VK_FORMAT_UNDEFINED;
     bool isColorFormat = (formatProperties->aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) != 0;
 
+    // View formats must match the format the image is created with
+    std::array<VkFormat, 2> conversionFormats = {
+      m_mapping.ConversionFormatInfo.FormatColor,
+      m_mapping.ConversionFormatInfo.FormatSrgb };
+
     if (isMutable && isColorFormat) {
       imageInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
       imageInfo.viewFormatCount = 2;
-      imageInfo.viewFormats     = m_mapping.Formats;
+      imageInfo.viewFormats     = m_mapping.ConversionFormatInfo.FormatColor != VK_FORMAT_UNDEFINED
+        ? conversionFormats.data()
+        : m_mapping.Formats;
     }
 
     // Are we an RT, need to gen mips or an offscreen plain surface?

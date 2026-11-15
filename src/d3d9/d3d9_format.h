@@ -172,6 +172,7 @@ namespace dxvk {
       VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
       VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY };
     D3D9_CONVERSION_FORMAT_INFO ConversionFormatInfo = { };
+    bool                  ExpandR8      = false;                ///< d3d9.expandR8: image is R8G8B8A8, mapped buffer stays R8
 
     bool IsValid() const { return FormatColor != VK_FORMAT_UNDEFINED; }
   };
@@ -232,6 +233,7 @@ namespace dxvk {
     bool m_x4r4g4b4Support;
     bool m_w11v11u10Support;
     bool m_d32supportFinal;
+    bool m_expandR8;
   };
 
 }

@@ -721,6 +721,14 @@ namespace dxvk {
             VkExtent3D              SrcExtent,
             VkOffset3D              DestOffset);
 
+    void ReadbackExpandedR8Image(
+      const Rc<DxvkImage>&            Image,
+            VkImageSubresourceLayers  Subresource,
+            VkExtent3D                LevelExtent,
+      const Rc<DxvkBuffer>&           DstBuffer,
+            uint64_t                  DstSequenceNumber,
+            void*                     pDst);
+
     void EmitGenerateMips(
             D3D9CommonTexture* pResource);
 

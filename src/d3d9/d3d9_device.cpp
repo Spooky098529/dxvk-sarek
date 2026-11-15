@@ -15,6 +15,7 @@
 #include "d3d9_spec_constants.h"
 #include "d3d9_names.h"
 #include "d3d9_format_helpers.h"
+#include "d3d9_expand_r8.h"
 
 #include "../dxvk/dxvk_adapter.h"
 #include "../dxvk/dxvk_instance.h"
@@ -1013,6 +1014,14 @@ namespace dxvk {
     uint32_t pitchBlocks = uint32_t(pitch / srcFormatInfo->elementSize);
     VkExtent2D dstExtent = VkExtent2D{ pitchBlocks,
                                        texLevelExtentBlockCount.height * pitchBlocks };
+
+    if (unlikely(srcTexInfo->GetFormatMapping().ExpandR8)) {
+      ReadbackExpandedR8Image(srcImage, srcSubresourceLayers, srcExtent,
+        dstBuffer, dstTexInfo->GetMappingBufferSequenceNumber(dst->GetSubresource()),
+        dstTexInfo->GetMappedSlice(dst->GetSubresource()).mapPtr);
+      dstTexInfo->SetNeedsReadback(dst->GetSubresource(), true);
+      return D3D_OK;
+    }
 
     EmitCs([
       cBuffer       = dstBuffer,
@@ -4683,33 +4692,39 @@ namespace dxvk {
             });
           }
 
-          VkFormat packedFormat = GetPackedDepthStencilFormat(desc.Format);
+          if (unlikely(formatMapping.ExpandR8)) {
+            ReadbackExpandedR8Image(mappedImage, subresourceLayers, levelExtent,
+              mappedBuffer, pResource->GetMappingBufferSequenceNumber(Subresource),
+              physSlice.mapPtr);
+          } else {
+            VkFormat packedFormat = GetPackedDepthStencilFormat(desc.Format);
 
-          EmitCs([
-            cImageBuffer  = mappedBuffer,
-            cImage        = std::move(mappedImage),
-            cSubresources = subresourceLayers,
-            cLevelExtent  = levelExtent,
-            cPackedFormat = packedFormat
-          ] (DxvkContext* ctx) {
-            if (cSubresources.aspectMask != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
-              ctx->copyImageToBuffer(cImageBuffer, 0, 4, 0,
-                cImage, cSubresources, VkOffset3D { 0, 0, 0 },
-                cLevelExtent);
-            } else {
-              // Copying DS to a packed buffer is only supported for D24S8 and D32S8
-              // right now so the 4 byte row alignment is guaranteed by the format size
-              ctx->copyDepthStencilImageToPackedBuffer(
-                cImageBuffer, 0,
-                VkOffset2D { 0, 0 },
-                VkExtent2D { cLevelExtent.width, cLevelExtent.height },
-                cImage, cSubresources,
-                VkOffset2D { 0, 0 },
-                VkExtent2D { cLevelExtent.width, cLevelExtent.height },
-                cPackedFormat);
-            }
-          });
-          TrackTextureMappingBufferSequenceNumber(pResource, Subresource);
+            EmitCs([
+              cImageBuffer  = mappedBuffer,
+              cImage        = std::move(mappedImage),
+              cSubresources = subresourceLayers,
+              cLevelExtent  = levelExtent,
+              cPackedFormat = packedFormat
+            ] (DxvkContext* ctx) {
+              if (cSubresources.aspectMask != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
+                ctx->copyImageToBuffer(cImageBuffer, 0, 4, 0,
+                  cImage, cSubresources, VkOffset3D { 0, 0, 0 },
+                  cLevelExtent);
+              } else {
+                // Copying DS to a packed buffer is only supported for D24S8 and D32S8
+                // right now so the 4 byte row alignment is guaranteed by the format size
+                ctx->copyDepthStencilImageToPackedBuffer(
+                  cImageBuffer, 0,
+                  VkOffset2D { 0, 0 },
+                  VkExtent2D { cLevelExtent.width, cLevelExtent.height },
+                  cImage, cSubresources,
+                  VkOffset2D { 0, 0 },
+                  VkExtent2D { cLevelExtent.width, cLevelExtent.height },
+                  cPackedFormat);
+              }
+            });
+            TrackTextureMappingBufferSequenceNumber(pResource, Subresource);
+          }
         } else if (!(Flags & D3DLOCK_DONOTWAIT) && !WaitForResource(mappedBuffer, pResource->GetMappingBufferSequenceNumber(Subresource), D3DLOCK_DONOTWAIT)) {
           pResource->EnableStagingBufferUploads(Subresource);
         }
@@ -4895,17 +4910,37 @@ namespace dxvk {
       alignedExtent = util::snapExtent3D(alignedDestOffset, alignedExtent, dstTexLevelExtent);
       alignedExtent = util::snapExtent3D(alignedSrcOffset, alignedExtent, srcTexLevelExtent);
 
+      // With d3d9.expandR8 the mapped buffer holds one byte per texel
+      // while the image holds four, so the buffer layout must be
+      // computed from the mapping format rather than the image format.
+      const bool expandR8 = pDestTexture->GetFormatMapping().ExpandR8;
+      const DxvkFormatInfo* bufferFormatInfo = expandR8
+        ? imageFormatInfo(pSrcTexture->GetFormatMapping().FormatColor)
+        : formatInfo;
+
       VkOffset3D srcOffsetBlockCount = util::computeBlockOffset(alignedSrcOffset, formatInfo->blockSize);
       VkExtent3D srcTexLevelExtentBlockCount = util::computeBlockCount(srcTexLevelExtent, formatInfo->blockSize);
-      VkDeviceSize pitch = align(srcTexLevelExtentBlockCount.width * formatInfo->elementSize, 4);
+      VkDeviceSize pitch = align(srcTexLevelExtentBlockCount.width * bufferFormatInfo->elementSize, 4);
       VkDeviceSize copySrcOffset = srcOffsetBlockCount.z * srcTexLevelExtentBlockCount.height * pitch
           + srcOffsetBlockCount.y * pitch
-          + srcOffsetBlockCount.x * formatInfo->elementSize;
+          + srcOffsetBlockCount.x * bufferFormatInfo->elementSize;
 
       VkDeviceSize sliceAlignment = 1;
       VkDeviceSize rowAlignment = 1;
       DxvkBufferSlice copySrcSlice;
-      if (pSrcTexture->DoesStagingBufferUploads(SrcSubresource)) {
+      if (unlikely(expandR8)) {
+        // Always go through a staging buffer and widen each texel.
+        // R8 and R8G8B8A8 both use 1x1 blocks, so texels == blocks.
+        VkDeviceSize expandedSize = VkDeviceSize(alignedExtent.width) * alignedExtent.height
+          * alignedExtent.depth * formatInfo->elementSize;
+        D3D9BufferSlice slice = AllocTempBuffer<false>(expandedSize);
+        copySrcSlice = slice.slice;
+        const void* srcData = reinterpret_cast<const uint8_t*>(srcSlice.mapPtr) + copySrcOffset;
+        expandR8ToRGBA8(
+          slice.mapPtr, srcData,
+          alignedExtent.width, alignedExtent.height, alignedExtent.depth,
+          pitch, pitch * srcTexLevelExtentBlockCount.height);
+      } else if (pSrcTexture->DoesStagingBufferUploads(SrcSubresource)) {
         VkDeviceSize dirtySize = extentBlockCount.width * extentBlockCount.height * extentBlockCount.depth * formatInfo->elementSize;
         D3D9BufferSlice slice = AllocTempBuffer<false>(dirtySize);
         copySrcSlice = slice.slice;
@@ -4988,6 +5023,50 @@ namespace dxvk {
         slice.slice);
     }
   }
+
+  void D3D9DeviceEx::ReadbackExpandedR8Image(
+    const Rc<DxvkImage>&            Image,
+          VkImageSubresourceLayers  Subresource,
+          VkExtent3D                LevelExtent,
+    const Rc<DxvkBuffer>&           DstBuffer,
+          uint64_t                  DstSequenceNumber,
+          void*                     pDst) {
+    // d3d9.expandR8: the image has four bytes per texel but the mapped
+    // buffer only has one, so copy into a temporary buffer, wait for it
+    // and pack the R channel on the CPU. This always blocks.
+    DxvkBufferCreateInfo info;
+    info.size   = VkDeviceSize(LevelExtent.width) * LevelExtent.height * LevelExtent.depth * 4;
+    info.usage  = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    info.access = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    Rc<DxvkBuffer> readbackBuffer = m_dxvkDevice->createBuffer(info,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+      VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+
+    EmitCs([
+      cBuffer       = readbackBuffer,
+      cImage        = Image,
+      cSubresource  = Subresource,
+      cLevelExtent  = LevelExtent
+    ] (DxvkContext* ctx) {
+      ctx->copyImageToBuffer(cBuffer, 0, 4, 0,
+        cImage, cSubresource, VkOffset3D { 0, 0, 0 },
+        cLevelExtent);
+    });
+
+    WaitForResource(readbackBuffer, GetCurrentSequenceNumber(), 0);
+    // The GPU may still be reading the destination for an earlier upload
+    WaitForResource(DstBuffer, DstSequenceNumber, 0);
+
+    const uint32_t rowPitch = align(LevelExtent.width, 4);
+
+    packRGBA8ToR8(pDst, readbackBuffer->mapPtr(0),
+      LevelExtent.width, LevelExtent.height, LevelExtent.depth,
+      rowPitch, rowPitch * LevelExtent.height);
+  }
+
 
   void D3D9DeviceEx::EmitGenerateMips(
     D3D9CommonTexture* pResource) {

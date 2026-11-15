@@ -122,6 +122,10 @@ namespace dxvk {
     /// bug in The Sims 2 that happens on native too!
     bool disableA8RT;
 
+    /// Back D3DFMT_A8 and D3DFMT_L8 textures with RGBA8 images
+    /// instead of R8. Works around drivers that mis-sample R8.
+    bool expandR8;
+
     /// Work around a NV driver quirk
     /// Fixes flickering/z-fighting in some games.
     bool invariantPosition;
