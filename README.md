@@ -7,10 +7,7 @@ Current fixes:
 - Fixes single channel textures rendering as squares 
 - Stores Direct3D 9 D3DFMT_A8 and D3DFMT_L8 textures in RGBA8 images instead of R8
 - Set with d3d9.expandR8 = True for game assets and dxvk.hudExpandR8 = True for the DXVK HUD (both are off by default)
-- This means these texures use 4x the video memory, however they now draw correctly
-
-
-
+- This means these textures use 4x the video memory, however they now draw correctly
 
 
 <details>
