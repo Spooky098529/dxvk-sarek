@@ -1,14 +1,20 @@
+# DXVK-Sarek Kepler
 
-# DXVK-Sarek, forked to provide workarounds for issues I encounter when using Kepler GPUs w/ NVK drivers
+A fork of [DXVK-Sarek](https://github.com/pythonlover02/DXVK-Sarek) with workarounds for issues I encounter when using Kepler GPUs with the NVK driver.
 
-Current fixes:
+## Current fixes
 
-## R8 Texture handling fix
-- Fixes single channel textures rendering as squares 
-- Stores Direct3D 9 D3DFMT_A8 and D3DFMT_L8 textures in RGBA8 images instead of R8
-- Set with d3d9.expandR8 = True for game assets and dxvk.hudExpandR8 = True for the DXVK HUD (both are off by default)
-- This means these textures use 4x the video memory, however they now draw correctly
+### R8 texture handling
 
+Fixes single-channel textures rendering as squares.
+
+- Stores Direct3D 9 `D3DFMT_A8` and `D3DFMT_L8` textures in RGBA8 images instead of R8.
+- Both options are off by default. Enable them in `dxvk.conf`:
+  ```
+  d3d9.expandR8 = True       # game textures
+  dxvk.hudExpandR8 = True    # DXVK HUD
+  ```
+- These textures use 4x the video memory, but now draw correctly.
 
 <details>
 
