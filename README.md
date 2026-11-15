@@ -1,7 +1,21 @@
-> [!NOTE]
-> Bug reports and pull requests are welcome, but please understand that I'm currently on my exam period for this year of my career, and I've also joined an indie dev group to create a retro style racing game, this on top of my usual work. This means that my current FOSS projects are at a halt even if they are my hobby, and I expect to retake them in 1-3 months. The projects are not abandoned, development will resume once things calm down.
->
-> Also English isn't my first language. I mainly speak Spanish (and some Portuguese), so I usually write the docs in Spanish, run them through a translator, and then edit the result. Some parts may sound a bit stiff or unnatural because of that. If anything is unclear, feel free to open an issue and I'll fix it.
+
+# DXVK-Sarek, forked to provide workarounds for issues I encounter when using Kepler GPUs w/ NVK drivers
+
+Current fixes:
+
+## R8 Texture handling fix
+- Fixes single channel textures rendering as squares 
+- Stores Direct3D 9 D3DFMT_A8 and D3DFMT_L8 textures in RGBA8 images instead of R8
+- Set with d3d9.expandR8 = True for game assets and dxvk.hudExpandR8 = True for the DXVK HUD (both are off by default)
+- This means these texures use 4x the video memory, however they now draw correctly
+
+
+
+
+
+<details>
+
+<summary>Original readme</summary>
 
 # DXVK-Sarek
 
@@ -315,3 +329,5 @@ The following environment variables can be used for debugging:
 DXVK requires threading support from your mingw-w64 build environment. If this is missing, you may see `error: 'std::cv_status' has not been declared` or similar threading-related errors.
 
 Make sure your mingw-w64-gcc cross compiler has `--enable-threads=posix` enabled during configure. If your distro ships its mingw-w64-gcc binary with `--enable-threads=win32`, you may have to recompile locally or open a bug at your distro's bug tracker to ask for it.
+
+</details>
