@@ -67,6 +67,10 @@ namespace dxvk {
 
     /// HUD elements
     std::string hud;
+
+    /// Use an RGBA8 image for the HUD font instead of R8.
+    /// Works around drivers that mis-sample R8.
+    bool hudExpandR8 = false;
   };
 
 }

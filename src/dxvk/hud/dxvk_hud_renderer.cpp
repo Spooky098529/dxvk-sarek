@@ -268,9 +268,14 @@ namespace dxvk::hud {
 
 
   Rc<DxvkImage> HudRenderer::createFontImage() {
+    if (m_device->config().hudExpandR8)
+      Logger::info("HUD: dxvk.hudExpandR8 enabled: font uses VK_FORMAT_R8G8B8A8_UNORM");
+
     DxvkImageCreateInfo info;
     info.type           = VK_IMAGE_TYPE_2D;
-    info.format         = VK_FORMAT_R8_UNORM;
+    info.format         = m_device->config().hudExpandR8
+                        ? VK_FORMAT_R8G8B8A8_UNORM
+                        : VK_FORMAT_R8_UNORM;
     info.flags          = 0;
     info.sampleCount    = VK_SAMPLE_COUNT_1_BIT;
     info.extent         = { g_hudFont.width, g_hudFont.height, 1 };
@@ -347,9 +352,21 @@ namespace dxvk::hud {
 
     context->uploadBuffer(m_fontBuffer, &gpuData);
 
-    context->uploadImage(m_fontImage,
-      VkImageSubresourceLayers { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-      g_hudFont.texture, g_hudFont.width, g_hudFont.width * g_hudFont.height);
+    if (m_fontImage->info().format == VK_FORMAT_R8G8B8A8_UNORM) {
+      // dxvk.hudExpandR8: replicate each byte, the shader reads .r
+      std::vector<uint32_t> texels(g_hudFont.width * g_hudFont.height);
+
+      for (size_t i = 0; i < texels.size(); i++)
+        texels[i] = uint32_t(g_hudFont.texture[i]) * 0x01010101u;
+
+      context->uploadImage(m_fontImage,
+        VkImageSubresourceLayers { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        texels.data(), g_hudFont.width * 4, g_hudFont.width * g_hudFont.height * 4);
+    } else {
+      context->uploadImage(m_fontImage,
+        VkImageSubresourceLayers { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        g_hudFont.texture, g_hudFont.width, g_hudFont.width * g_hudFont.height);
+    }
     
     m_initialized = true;
   }

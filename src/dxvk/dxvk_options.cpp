@@ -9,6 +9,7 @@ namespace dxvk {
     useRawSsbo            = config.getOption<Tristate>("dxvk.useRawSsbo",             Tristate::Auto);
     shrinkNvidiaHvvHeap   = config.getOption<Tristate>("dxvk.shrinkNvidiaHvvHeap",    Tristate::Auto);
     hud                   = config.getOption<std::string>("dxvk.hud", "");
+    hudExpandR8           = config.getOption<bool>    ("dxvk.hudExpandR8",            false);
     hideIntegratedGraphics = config.getOption<bool>   ("dxvk.hideIntegratedGraphics", false);
     deviceFilter          = config.getOption<std::string>("dxvk.deviceFilter",        "");
     tilerMode             = config.getOption<Tristate>("dxvk.tilerMode",              Tristate::Auto);
