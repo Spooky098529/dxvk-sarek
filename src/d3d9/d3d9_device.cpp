@@ -15,7 +15,7 @@
 #include "d3d9_spec_constants.h"
 #include "d3d9_names.h"
 #include "d3d9_format_helpers.h"
-#include "d3d9_expand_r8.h"
+#include "../util/util_expand_r8.h"
 
 #include "../dxvk/dxvk_adapter.h"
 #include "../dxvk/dxvk_instance.h"
