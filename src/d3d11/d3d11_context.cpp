@@ -8,6 +8,8 @@
 
 #include "../dxbc/dxbc_util.h"
 
+#include "../util/util_expand_r8.h"
+
 namespace dxvk {
 
   D3D11DeviceContext::D3D11DeviceContext(
@@ -644,6 +646,15 @@ namespace dxvk {
     } else {
       Rc<DxvkImageView> imageView = uav->GetImageView();
 
+      // d3d11.expandR8: the view uses the R8G8B8A8 counterpart
+      // of the format, so the raw format must be expanded too
+      VkFormat expandedFormat = D3D11CommonTexture::ExpandR8Format(uavFormat);
+
+      if (expandedFormat != uavFormat && imageView->info().format == expandedFormat) {
+        uavFormat = expandedFormat;
+        rawFormat = D3D11CommonTexture::ExpandR8Format(rawFormat);
+      }
+
       // If the clear value is zero, we can use the original view regardless of
       // the format since the bit pattern will not change in any supported format.
       bool isZeroClearValue = !(clearValue.color.uint32[0] | clearValue.color.uint32[1]
@@ -1119,8 +1130,8 @@ namespace dxvk {
           cDstImage->mipLevelExtent(cDstLayers.mipLevel));
       });
     } else {
-      const VkFormat format = m_parent->LookupFormat(
-        Format, DXGI_VK_FORMAT_MODE_ANY).Format;
+      const VkFormat format = dstTextureInfo->LookupViewFormat(
+        Format, DXGI_VK_FORMAT_MODE_ANY, false).Format;
 
       EmitCs([
         cDstImage  = dstTextureInfo->GetImage(),
@@ -3762,10 +3773,17 @@ namespace dxvk {
 
     auto stagingSlice = AllocStagingBuffer(util::computeImageDataSize(packedFormat, extent));
 
-    util::packImageData(stagingSlice.mapPtr(0),
-      pSrcData, SrcRowPitch, SrcDepthPitch, 0, 0,
-      pDstTexture->GetVkImageType(), extent, 1,
-      formatInfo, formatInfo->aspectMask);
+    if (unlikely(pDstTexture->ExpandsR8())) {
+      // The source has one byte per texel, the packed format has four
+      expandR8ToRGBA8(stagingSlice.mapPtr(0), pSrcData,
+        extent.width, extent.height, extent.depth,
+        SrcRowPitch, SrcDepthPitch);
+    } else {
+      util::packImageData(stagingSlice.mapPtr(0),
+        pSrcData, SrcRowPitch, SrcDepthPitch, 0, 0,
+        pDstTexture->GetVkImageType(), extent, 1,
+        formatInfo, formatInfo->aspectMask);
+    }
 
     UpdateImage(pDstTexture, &subresource,
       offset, extent, std::move(stagingSlice));

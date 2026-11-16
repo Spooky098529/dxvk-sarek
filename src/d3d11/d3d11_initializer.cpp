@@ -3,6 +3,8 @@
 #include "d3d11_device.h"
 #include "d3d11_initializer.h"
 
+#include "../util/util_expand_r8.h"
+
 namespace dxvk {
 
   D3D11Initializer::D3D11Initializer(
@@ -124,8 +126,36 @@ namespace dxvk {
     auto mapMode = pTexture->GetMapMode();
     auto desc = pTexture->Desc();
 
-    VkFormat packedFormat = m_parent->LookupPackedFormat(desc->Format, pTexture->GetFormatMode()).Format;
+    VkFormat packedFormat = pTexture->GetPackedFormat();
     auto formatInfo = imageFormatInfo(packedFormat);
+
+    // d3d11.expandR8: the initial data has one byte per texel,
+    // replicate it so that it matches the R8G8B8A8 packed format
+    std::vector<D3D11_SUBRESOURCE_DATA> expandedData;
+    std::vector<std::vector<uint8_t>>   expandedStorage;
+
+    if (pTexture->ExpandsR8() && pInitialData != nullptr && pInitialData->pSysMem != nullptr) {
+      uint32_t subresourceCount = pTexture->CountSubresources();
+
+      expandedData.resize(subresourceCount);
+      expandedStorage.resize(subresourceCount);
+
+      for (uint32_t i = 0; i < subresourceCount; i++) {
+        VkExtent3D extent = pTexture->MipLevelExtent(i % desc->MipLevels);
+
+        expandedStorage[i].resize(size_t(extent.width) * extent.height * extent.depth * 4);
+
+        expandR8ToRGBA8(expandedStorage[i].data(), pInitialData[i].pSysMem,
+          extent.width, extent.height, extent.depth,
+          pInitialData[i].SysMemPitch, pInitialData[i].SysMemSlicePitch);
+
+        expandedData[i].pSysMem          = expandedStorage[i].data();
+        expandedData[i].SysMemPitch      = extent.width * 4;
+        expandedData[i].SysMemSlicePitch = extent.width * extent.height * 4;
+      }
+
+      pInitialData = expandedData.data();
+    }
 
     if (pInitialData != nullptr && pInitialData->pSysMem != nullptr) {
       // pInitialData is an array that stores an entry for

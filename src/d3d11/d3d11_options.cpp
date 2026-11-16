@@ -29,6 +29,7 @@ namespace dxvk {
     this->tearFree              = config.getOption<Tristate>("dxgi.tearFree", Tristate::Auto);
     this->exposeDriverCommandLists = config.getOption<bool>("d3d11.exposeDriverCommandLists", true);
     this->enableContextLock        = config.getOption<bool>("d3d11.enableContextLock",        false);
+    this->expandR8                 = config.getOption<bool>("d3d11.expandR8",                 false);
 
     int32_t maxImplicitDiscardSize = config.getOption<int32_t>("d3d11.maxImplicitDiscardSize", 256);
     this->maxImplicitDiscardSize = maxImplicitDiscardSize >= 0

@@ -19,8 +19,8 @@ namespace dxvk {
     D3D11_COMMON_RESOURCE_DESC resourceDesc;
     GetCommonResourceDesc(pResource, &resourceDesc);
 
-    DXGI_VK_FORMAT_INFO formatInfo = pDevice->LookupFormat(
-      pDesc->Format, DXGI_VK_FORMAT_MODE_COLOR);
+    DXGI_VK_FORMAT_INFO formatInfo = texture->LookupViewFormat(
+      pDesc->Format, DXGI_VK_FORMAT_MODE_COLOR, false);
 
     DxvkImageViewCreateInfo viewInfo;
     viewInfo.format  = formatInfo.Format;

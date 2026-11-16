@@ -1,6 +1,8 @@
 #include "d3d11_context_def.h"
 #include "d3d11_device.h"
 
+#include "../util/util_expand_r8.h"
+
 namespace dxvk {
 
   D3D11DeferredContext::D3D11DeferredContext(
@@ -338,6 +340,33 @@ namespace dxvk {
         formatInfo->aspectMask, Subresource);
 
     VkExtent3D levelExtent = pTexture->MipLevelExtent(subresource.mipLevel);
+
+    if (unlikely(pTexture->ExpandsR8())) {
+      // d3d11.expandR8: the application writes one byte per texel after
+      // Map returns, so expand the data when the command list executes
+      auto appLayout = pTexture->GetExpandR8Layout(Subresource);
+      auto srcSlice = AllocStagingBuffer(appLayout.Size);
+      auto dstSlice = AllocStagingBuffer(util::computeImageDataSize(packedFormat, levelExtent));
+
+      pMappedResource->RowPitch   = appLayout.RowPitch;
+      pMappedResource->DepthPitch = appLayout.DepthPitch;
+      pMappedResource->pData      = srcSlice.mapPtr(0);
+
+      EmitCs([
+        cSrcSlice = std::move(srcSlice),
+        cDstSlice = dstSlice,
+        cExtent   = levelExtent
+      ] (DxvkContext* ctx) {
+        expandR8ToRGBA8(cDstSlice.mapPtr(0), cSrcSlice.mapPtr(0),
+          cExtent.width, cExtent.height, cExtent.depth,
+          cExtent.width, cExtent.width * cExtent.height);
+      });
+
+      UpdateImage(pTexture, &subresource,
+        VkOffset3D { 0, 0, 0 }, levelExtent,
+        std::move(dstSlice));
+      return S_OK;
+    }
 
     auto layout = pTexture->GetSubresourceLayout(formatInfo->aspectMask, Subresource);
     auto dataSlice = AllocStagingBuffer(util::computeImageDataSize(packedFormat, levelExtent));

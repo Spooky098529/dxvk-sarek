@@ -4,6 +4,8 @@
 #include "d3d11_fence.h"
 #include "d3d11_texture.h"
 
+#include "../util/util_expand_r8.h"
+
 constexpr static uint32_t MinFlushIntervalUs = 750;
 constexpr static uint32_t IncFlushIntervalUs = 250;
 constexpr static uint32_t MaxPendingSubmits  = 6;
@@ -613,7 +615,26 @@ namespace dxvk {
     // Mark the given subresource as mapped
     pResource->SetMapType(Subresource, MapType);
 
-    if (pMappedResource) {
+    if (unlikely(pMappedResource && pResource->ExpandsR8())) {
+      // d3d11.expandR8: the mapped buffer holds four bytes per texel,
+      // so hand out a CPU shadow with one byte per texel instead. Unless
+      // the contents are discarded, fill it with the current R channel.
+      auto layout = pResource->GetSubresourceLayout(formatInfo->aspectMask, Subresource);
+      auto appLayout = pResource->GetExpandR8Layout(Subresource);
+      uint8_t* shadow = pResource->GetExpandR8Shadow(Subresource);
+
+      if (MapType != D3D11_MAP_WRITE_DISCARD) {
+        VkExtent3D extent = pResource->MipLevelExtent(Subresource % pResource->Desc()->MipLevels);
+
+        packRGBA8ToR8(shadow, reinterpret_cast<char*>(mapPtr) + layout.Offset,
+          extent.width, extent.height, extent.depth,
+          extent.width, extent.width * extent.height);
+      }
+
+      pMappedResource->pData      = shadow;
+      pMappedResource->RowPitch   = appLayout.RowPitch;
+      pMappedResource->DepthPitch = appLayout.DepthPitch;
+    } else if (pMappedResource) {
       auto layout = pResource->GetSubresourceLayout(formatInfo->aspectMask, Subresource);
       pMappedResource->pData      = reinterpret_cast<char*>(mapPtr) + layout.Offset;
       pMappedResource->RowPitch   = layout.RowPitch;
@@ -637,6 +658,20 @@ namespace dxvk {
     // Decrement mapped image counter only after making sure
     // the given subresource is actually mapped right now
     m_mappedImageCount -= 1;
+
+    if (unlikely(mapType != D3D11_MAP_READ && pResource->ExpandsR8())) {
+      // d3d11.expandR8: write the shadow written by the application
+      // back into the mapped buffer, replicating each byte
+      VkImageAspectFlags aspectMask = imageFormatInfo(pResource->GetPackedFormat())->aspectMask;
+      VkExtent3D extent = pResource->MipLevelExtent(Subresource % pResource->Desc()->MipLevels);
+
+      auto layout = pResource->GetSubresourceLayout(aspectMask, Subresource);
+      auto mapPtr = reinterpret_cast<char*>(pResource->GetMappedSlice(Subresource).mapPtr) + layout.Offset;
+
+      expandR8ToRGBA8(mapPtr, pResource->GetExpandR8Shadow(Subresource),
+        extent.width, extent.height, extent.depth,
+        extent.width, extent.width * extent.height);
+    }
 
     if ((mapType != D3D11_MAP_READ) && (pResource->GetMapMode() == D3D11_COMMON_TEXTURE_MAP_MODE_BUFFER)) {
       // Now that data has been written into the buffer,

@@ -121,6 +121,11 @@ namespace dxvk {
     /// useful for debugging purposes or when applications have
     /// race conditions.
     bool enableContextLock;
+
+    /// Back R8 and A8 textures with R8G8B8A8 images. Works around
+    /// drivers that sample VK_FORMAT_R8_* images incorrectly, e.g.
+    /// NVK on Kepler. Applications still see one byte per texel.
+    bool expandR8;
   };
 
 }

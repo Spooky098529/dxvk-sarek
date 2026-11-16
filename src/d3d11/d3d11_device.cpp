@@ -47,6 +47,9 @@ namespace dxvk {
     m_initializer = new D3D11Initializer(this);
     m_context     = new D3D11ImmediateContext(this, m_dxvkDevice);
     m_d3d10Device = new D3D10Device(this, m_context.ptr());
+
+    if (m_d3d11Options.expandR8)
+      Logger::info("D3D11: d3d11.expandR8 enabled: R8 and A8 textures use VK_FORMAT_R8G8B8A8_* instead of VK_FORMAT_R8_*");
   }
 
 
@@ -2380,6 +2383,12 @@ namespace dxvk {
      || texture->CountSubresources() <= Subresource
      || texture->GetMapType(Subresource) == D3D11_MAP(~0u))
       return;
+
+    // d3d11.expandR8 textures only support Map with a pointer
+    if (unlikely(texture->ExpandsR8())) {
+      Logger::warn("D3D11: Read/WriteToSubresource not supported with d3d11.expandR8");
+      return;
+    }
 
     // Retrieve image format information
     VkFormat packedFormat = LookupPackedFormat(

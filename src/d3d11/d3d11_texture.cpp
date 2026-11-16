@@ -19,6 +19,23 @@ namespace dxvk {
     DXGI_VK_FORMAT_INFO   formatInfo   = m_device->LookupFormat(m_desc.Format, formatMode);
     DXGI_VK_FORMAT_FAMILY formatFamily = m_device->LookupFamily(m_desc.Format, formatMode);
     DXGI_VK_FORMAT_INFO   formatPacked = m_device->LookupPackedFormat(m_desc.Format, formatMode);
+
+    // d3d11.expandR8: use R8G8B8A8 for the image and for all internal
+    // buffers, so that copies between textures stay size-compatible.
+    // Shared and imported images must keep their original format.
+    m_expandR8 = pDevice->GetOptions()->expandR8
+      && vkImage == VK_NULL_HANDLE
+      && !(m_desc.MiscFlags & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX))
+      && ExpandR8Format(formatInfo.Format) != formatInfo.Format;
+
+    if (m_expandR8) {
+      formatInfo.Format   = ExpandR8Format(formatInfo.Format);
+      formatPacked.Format = ExpandR8Format(formatPacked.Format);
+
+      for (uint32_t i = 0; i < formatFamily.FormatCount; i++)
+        formatFamily.Formats[i] = ExpandR8Format(formatFamily.Formats[i]);
+    }
+
     m_packedFormat = formatPacked.Format;
 
     DxvkImageCreateInfo imageInfo;
@@ -350,6 +367,79 @@ namespace dxvk {
   }
 
 
+  DXGI_VK_FORMAT_INFO D3D11CommonTexture::LookupViewFormat(
+          DXGI_FORMAT           Format,
+          DXGI_VK_FORMAT_MODE   Mode,
+          bool                  Sampled) const {
+    DXGI_VK_FORMAT_INFO info = m_device->LookupFormat(Format, Mode);
+
+    if (m_expandR8) {
+      VkFormat expanded = ExpandR8Format(info.Format);
+
+      if (expanded != info.Format) {
+        info.Format = expanded;
+
+        // The image stores the value in all four channels, but D3D11
+        // returns (r, 0, 0, 1) when sampling R8. A8 already has a
+        // non-identity swizzle that only reads the R channel.
+        if (Sampled
+         && info.Swizzle.r == VK_COMPONENT_SWIZZLE_IDENTITY
+         && info.Swizzle.g == VK_COMPONENT_SWIZZLE_IDENTITY
+         && info.Swizzle.b == VK_COMPONENT_SWIZZLE_IDENTITY
+         && info.Swizzle.a == VK_COMPONENT_SWIZZLE_IDENTITY) {
+          info.Swizzle = VkComponentMapping {
+            VK_COMPONENT_SWIZZLE_R,    VK_COMPONENT_SWIZZLE_ZERO,
+            VK_COMPONENT_SWIZZLE_ZERO, VK_COMPONENT_SWIZZLE_ONE };
+        }
+      }
+    }
+
+    return info;
+  }
+
+
+  D3D11_COMMON_TEXTURE_SUBRESOURCE_LAYOUT D3D11CommonTexture::GetExpandR8Layout(
+          UINT                  Subresource) const {
+    VkExtent3D extent = MipLevelExtent(Subresource % m_desc.MipLevels);
+
+    D3D11_COMMON_TEXTURE_SUBRESOURCE_LAYOUT layout = { };
+    layout.RowPitch   = extent.width;
+    layout.DepthPitch = extent.width * extent.height;
+    layout.Size       = layout.DepthPitch * extent.depth;
+
+    // Same rules as GetSubresourceLayout
+    if (m_dimension < D3D11_RESOURCE_DIMENSION_TEXTURE2D) layout.RowPitch = layout.Size;
+    if (m_dimension < D3D11_RESOURCE_DIMENSION_TEXTURE3D) layout.DepthPitch = layout.Size;
+    return layout;
+  }
+
+
+  uint8_t* D3D11CommonTexture::GetExpandR8Shadow(
+          UINT                  Subresource) {
+    if (m_expandR8Shadow.size() <= Subresource)
+      m_expandR8Shadow.resize(CountSubresources());
+
+    auto& shadow = m_expandR8Shadow[Subresource];
+
+    if (shadow.empty())
+      shadow.resize(GetExpandR8Layout(Subresource).Size);
+
+    return shadow.data();
+  }
+
+
+  VkFormat D3D11CommonTexture::ExpandR8Format(
+          VkFormat              Format) {
+    switch (Format) {
+      case VK_FORMAT_R8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
+      case VK_FORMAT_R8_SNORM: return VK_FORMAT_R8G8B8A8_SNORM;
+      case VK_FORMAT_R8_UINT:  return VK_FORMAT_R8G8B8A8_UINT;
+      case VK_FORMAT_R8_SINT:  return VK_FORMAT_R8G8B8A8_SINT;
+      default:                 return Format;
+    }
+  }
+
+
   bool D3D11CommonTexture::CheckViewCompatibility(UINT BindFlags, DXGI_FORMAT Format, UINT Plane) const {
     const DxvkImageCreateInfo& imageInfo = m_image->info();
 
@@ -359,8 +449,8 @@ namespace dxvk {
 
     // Check whether the view format is compatible
     DXGI_VK_FORMAT_MODE formatMode = GetFormatMode();
-    DXGI_VK_FORMAT_INFO viewFormat = m_device->LookupFormat(Format,        formatMode);
-    DXGI_VK_FORMAT_INFO baseFormat = m_device->LookupFormat(m_desc.Format, formatMode);
+    DXGI_VK_FORMAT_INFO viewFormat = LookupViewFormat(Format,        formatMode, false);
+    DXGI_VK_FORMAT_INFO baseFormat = LookupViewFormat(m_desc.Format, formatMode, false);
 
     // Check whether the plane index is valid for the given format
     uint32_t planeCount = GetPlaneCount();
@@ -585,6 +675,11 @@ namespace dxvk {
 
     // Multi-plane images have a special memory layout in D3D11
     if (imageFormatInfo(pImageInfo->format)->flags.test(DxvkFormatFlag::MultiPlane))
+      return D3D11_COMMON_TEXTURE_MAP_MODE_BUFFER;
+
+    // d3d11.expandR8: the image layout differs from what the application
+    // expects, so data must always be converted through a buffer
+    if (m_expandR8)
       return D3D11_COMMON_TEXTURE_MAP_MODE_BUFFER;
 
     // If we can't use linear tiling for this image, we have to use a buffer

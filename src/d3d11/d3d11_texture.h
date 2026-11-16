@@ -241,6 +241,65 @@ namespace dxvk {
     VkFormat GetPackedFormat() const {
       return m_packedFormat;
     }
+
+    /**
+     * \brief Checks whether d3d11.expandR8 applies to this texture
+     *
+     * If so, the image and all internal buffers use an R8G8B8A8
+     * format, while data passed to or from the application
+     * still uses one byte per texel.
+     * \returns \c true if the texture is expanded
+     */
+    bool ExpandsR8() const {
+      return m_expandR8;
+    }
+
+    /**
+     * \brief Looks up a view format for this texture
+     *
+     * Same as \c D3D11Device::LookupFormat, but returns the
+     * expanded format if d3d11.expandR8 applies to this texture.
+     * \param [in] Format View format
+     * \param [in] Mode Format lookup mode
+     * \param [in] Sampled Whether the view is a shader resource view
+     * \returns Format info
+     */
+    DXGI_VK_FORMAT_INFO LookupViewFormat(
+            DXGI_FORMAT           Format,
+            DXGI_VK_FORMAT_MODE   Mode,
+            bool                  Sampled) const;
+
+    /**
+     * \brief Computes the application-visible layout of an expanded subresource
+     *
+     * Only valid if \c ExpandsR8 returns \c true. The layout is
+     * tightly packed with one byte per texel and no offset.
+     * \param [in] Subresource Subresource index
+     * \returns Subresource layout
+     */
+    D3D11_COMMON_TEXTURE_SUBRESOURCE_LAYOUT GetExpandR8Layout(
+            UINT                  Subresource) const;
+
+    /**
+     * \brief Retrieves the CPU shadow of an expanded subresource
+     *
+     * Map returns this memory to the application instead of the
+     * mapped buffer, Unmap expands its contents into the buffer.
+     * Allocated on first use.
+     * \param [in] Subresource Subresource index
+     * \returns Pointer to the shadow data
+     */
+    uint8_t* GetExpandR8Shadow(
+            UINT                  Subresource);
+
+    /**
+     * \brief Maps an R8 Vulkan format to its R8G8B8A8 counterpart
+     *
+     * \param [in] Format Vulkan format
+     * \returns Expanded format, or \c Format if it is not an R8 format
+     */
+    static VkFormat ExpandR8Format(
+            VkFormat              Format);
     
     /**
      * \brief Checks whether the resource is eligible for tracking
@@ -391,10 +450,13 @@ namespace dxvk {
     D3D11_COMMON_TEXTURE_MAP_MODE m_mapMode;
     DXGI_USAGE                    m_dxgiUsage;
     VkFormat                      m_packedFormat;
+    bool                          m_expandR8 = false;
     
     Rc<DxvkImage>                 m_image;
     std::vector<MappedBuffer>     m_buffers;
     std::vector<MappedInfo>       m_mapInfo;
+
+    std::vector<std::vector<uint8_t>> m_expandR8Shadow;
     
     MappedBuffer CreateMappedBuffer(
             UINT                  MipLevel) const;

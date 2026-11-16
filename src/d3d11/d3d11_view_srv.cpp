@@ -72,7 +72,7 @@ namespace dxvk {
         buffer->GetBuffer(), viewInfo);
     } else {
       auto texture = GetCommonTexture(pResource);
-      auto formatInfo = pDevice->LookupFormat(pDesc->Format, texture->GetFormatMode());
+      auto formatInfo = texture->LookupViewFormat(pDesc->Format, texture->GetFormatMode(), true);
 
       DxvkImageViewCreateInfo viewInfo;
       viewInfo.format  = formatInfo.Format;
