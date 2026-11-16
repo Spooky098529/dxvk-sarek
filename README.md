@@ -8,10 +8,13 @@ A fork of [DXVK-Sarek](https://github.com/pythonlover02/DXVK-Sarek) with workaro
 
 Fixes single-channel textures rendering as squares.
 
-- Stores Direct3D 9 `D3DFMT_A8` and `D3DFMT_L8` textures in RGBA8 images instead of R8.
-- Both options are off by default. Enable them in `dxvk.conf`:
+- Stores single-channel textures in RGBA8 images instead of R8. Games still see one byte per pixel.
+  - Direct3D 9: `D3DFMT_A8` and `D3DFMT_L8`
+  - Direct3D 10 and 11: `DXGI_FORMAT_R8_*` and `DXGI_FORMAT_A8_UNORM`
+- All options are off by default. Enable the ones you need in `dxvk.conf`:
   ```
-  d3d9.expandR8 = True       # game textures
+  d3d9.expandR8 = True       # Direct3D 9 games
+  d3d11.expandR8 = True      # Direct3D 10 and 11 games
   dxvk.hudExpandR8 = True    # DXVK HUD
   ```
 - These textures use 4x the video memory, but now draw correctly.
